@@ -1,3 +1,7 @@
+2012-08-22 v0.1.6
+      forms: Now is more easy extends, and remove the pep8, pyflakes error
+      views: Add params like the default login and logout of django. Remove a import error, and remove the pep8, pyflakes error
+      middleware: fixed use of old messaging API
 2012-08-08 v0.1.5
       middleware: fixed use of old messaging API
       templates: fixed forgottent csrf_token in login form

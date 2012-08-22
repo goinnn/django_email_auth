@@ -2,7 +2,6 @@
 
 import datetime
 import urlparse
-from urllib import quote
 
 from django.conf import settings
 from django.contrib.auth import REDIRECT_FIELD_NAME
@@ -11,26 +10,29 @@ from django.shortcuts import render_to_response
 from django.utils.translation import ugettext as _
 from django.utils.encoding import iri_to_uri
 from django.views.decorators.cache import never_cache
-from django.contrib.sites.models import Site
+from django.contrib.sites.models import Site, RequestSite
 from django.template import RequestContext
 from django.dispatch import Signal
 
 from email_auth.forms import AuthenticationForm
 
-user_logged_in = Signal(providing_args=['request',])
-user_logged_out = Signal(providing_args=['request',])
+user_logged_in = Signal(providing_args=['request'])
+user_logged_out = Signal(providing_args=['request'])
+
 
 def login(request, template_name='registration/login.html',
-          redirect_field_name=REDIRECT_FIELD_NAME):
+          authentication_form=AuthenticationForm,
+          redirect_field_name=REDIRECT_FIELD_NAME,
+          extra_context=None):
     """
     Displays the login form, handles the email-based login action.
     May set a "remember me" cookie.
     Adapted from django.contrib.auth.views.login
     """
     from base64 import encodestring, decodestring
-    redirect_to = request.REQUEST.get('next', '')
+    redirect_to = request.REQUEST.get(redirect_field_name, '')
     if request.method == "POST":
-        form = AuthenticationForm(data=request.POST)
+        form = authentication_form(data=request.POST)
         if form.is_valid():
             netloc = urlparse.urlparse(redirect_to)[1]
 
@@ -56,7 +58,7 @@ def login(request, template_name='registration/login.html',
                     cookie_data = encodestring('%s:%s' %
                         (form.cleaned_data['email'],
                         form.cleaned_data['password']))
-                    max_age = 30*24*60*60
+                    max_age = 30 * 24 * 60 * 60
                     expires = datetime.datetime.strftime(
                         datetime.datetime.utcnow() +
                         datetime.timedelta(seconds=max_age),
@@ -82,10 +84,10 @@ def login(request, template_name='registration/login.html',
         if 'django_email_auth' in request.COOKIES:
             cookie_data = decodestring(request.COOKIES['django_email_auth'])
             try:
-                e,p = cookie_data.split(':')
+                e, p = cookie_data.split(':')
             except ValueError:
-                e,p = (None,None)
-            form = AuthenticationForm(request, 
+                e, p = (None, None)
+            form = authentication_form(request,
                     {'email': e, 'password': p, 'remember': True})
         else:
             form = AuthenticationForm(request)
@@ -94,17 +96,22 @@ def login(request, template_name='registration/login.html',
         current_site = Site.objects.get_current()
     else:
         current_site = RequestSite(request)
-    return render_to_response(template_name, {
+    context = {
         'form': form,
         redirect_field_name: redirect_to,
         'site': current_site,
         'site_name': current_site.name,
-    }, context_instance=RequestContext(request))
+    }
+    if extra_context is not None:
+        context.update(extra_context)
+    return render_to_response(template_name, context, context_instance=RequestContext(request))
 login = never_cache(login)
+
 
 def logout(request, next_page=None,
            template_name='registration/logged_out.html',
-           redirect_field_name=REDIRECT_FIELD_NAME):
+           redirect_field_name=REDIRECT_FIELD_NAME,
+           extra_context=None):
     """
     Logs out the user and displays 'You are logged out' message.
     Sends the user_logged_out signal.
@@ -118,10 +125,14 @@ def logout(request, next_page=None,
         if redirect_to:
             return HttpResponseRedirect(redirect_to)
         else:
-            return render_to_response(template_name, {
+            context = {
                 'title': _('Logged out')
-            }, context_instance=RequestContext(request))
+            }
+            if extra_context is not None:
+                context.update(extra_context)
+            return render_to_response(template_name,
+                                      context,
+                                      context_instance=RequestContext(request))
     else:
         # Redirect to this page until the session has been cleared.
         return HttpResponseRedirect(next_page or request.path)
-
