@@ -3,6 +3,8 @@
 import datetime
 import urlparse
 
+from base64 import encodestring, decodestring
+
 from django.conf import settings
 from django.contrib.auth import REDIRECT_FIELD_NAME
 from django.http import HttpResponse, HttpResponseRedirect
@@ -29,7 +31,6 @@ def login(request, template_name='registration/login.html',
     May set a "remember me" cookie.
     Adapted from django.contrib.auth.views.login
     """
-    from base64 import encodestring, decodestring
     redirect_to = request.REQUEST.get(redirect_field_name, '')
     if request.method == "POST":
         form = authentication_form(data=request.POST)
@@ -45,40 +46,12 @@ def login(request, template_name='registration/login.html',
             elif netloc and netloc != request.get_host():
                 redirect_to = settings.LOGIN_REDIRECT_URL
 
-            from django.contrib.auth import login
-            login(request, form.get_user())
-            if request.session.test_cookie_worked():
-                request.session.delete_test_cookie()
-            response = HttpResponse()
-            # handle "remember me" cookie
-            # effacer le cookie s'il existe
-            response.delete_cookie('django_email_auth')
-            if form.cleaned_data['remember']:
-                try:
-                    cookie_data = encodestring('%s:%s' %
-                        (form.cleaned_data['email'],
-                        form.cleaned_data['password']))
-                    max_age = 30 * 24 * 60 * 60
-                    expires = datetime.datetime.strftime(
-                        datetime.datetime.utcnow() +
-                        datetime.timedelta(seconds=max_age),
-                        "%a, %d-%b-%Y %H:%M:%S GMT"
-                        )
-                    response.set_cookie('django_email_auth',
-                            cookie_data, max_age=max_age, expires=expires)
-                except UnicodeEncodeError:
-                    pass
-            # send signal "user just logged in"
-            user_logged_in.send(sender=request.user, request=request)
-            # retourner à la vue appelante
-            if redirect_to:
-                response.status_code = 302
-                response['Location'] = iri_to_uri(redirect_to)
-                return response
-            else:
-                response.status_code = 302
-                response['Location'] = settings.LOGIN_REDIRECT_URL
-                return response
+            return email_login(request,
+                               form.get_user(),
+                               form.cleaned_data['email'],
+                               form.cleaned_data['password'],
+                               form.cleaned_data['remember'],
+                               redirect_to=redirect_to)
     else:
         # get login cookie if any
         if 'django_email_auth' in request.COOKIES:
@@ -106,6 +79,42 @@ def login(request, template_name='registration/login.html',
         context.update(extra_context)
     return render_to_response(template_name, context, context_instance=RequestContext(request))
 login = never_cache(login)
+
+
+def email_login(request, user, email, password, remember, redirect_to=None):
+    if not hasattr(user, 'backend'):
+        user.backend = 'email_auth.backends.EmailBackend'
+    from django.contrib.auth import login
+    login(request, user)
+    if request.session.test_cookie_worked():
+        request.session.delete_test_cookie()
+
+    response = HttpResponse()
+    # handle "remember me" cookie
+    # effacer le cookie s'il existe
+    response.delete_cookie('django_email_auth')
+    if remember:
+        try:
+            cookie_data = encodestring('%s:%s' % (email, password))
+            max_age = 30 * 24 * 60 * 60
+            expires = datetime.datetime.strftime(
+                datetime.datetime.utcnow() +
+                datetime.timedelta(seconds=max_age),
+                "%a, %d-%b-%Y %H:%M:%S GMT"
+                )
+            response.set_cookie('django_email_auth',
+                    cookie_data, max_age=max_age, expires=expires)
+        except UnicodeEncodeError:
+            pass
+    # send signal "user just logged in"
+    user_logged_in.send(sender=request.user, request=request)
+    # retourner à la vue appelante
+    response.status_code = 302
+    if redirect_to:
+        response['Location'] = iri_to_uri(redirect_to)
+    else:
+        response['Location'] = settings.LOGIN_REDIRECT_URL
+    return response
 
 
 def logout(request, next_page=None,
