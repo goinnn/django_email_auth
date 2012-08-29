@@ -63,7 +63,7 @@ def login(request, template_name='registration/login.html',
             form = authentication_form(request,
                     {'email': e, 'password': p, 'remember': True})
         else:
-            form = AuthenticationForm(request)
+            form = authentication_form(request)
     request.session.set_test_cookie()
     if Site._meta.installed:
         current_site = Site.objects.get_current()
